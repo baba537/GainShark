@@ -1,0 +1,23 @@
+{
+  "name": "gainshark",
+  "version": "1.0.0",
+  "description": "Sharkord plugin that raises the volume limit for users and streams to 200%.",
+  "module": "src/server/index.ts",
+  "type": "module",
+  "private": true,
+  "license": "MIT",
+  "scripts": {
+    "build": "bun build.ts",
+    "check-types": "tsc --noEmit",
+    "publish": "bun publish.ts"
+  },
+  "devDependencies": {
+    "@types/bun": "latest",
+    "@types/react": "^19.2.14",
+    "@types/react-dom": "^19"
+  },
+  "peerDependencies": {
+    "react": "^19",
+    "typescript": "^5"
+  }
+}

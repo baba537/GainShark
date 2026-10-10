@@ -1,0 +1,8 @@
+{
+  "id": "gainshark",
+  "name": "GainShark",
+  "author": "GainShark contributors",
+  "description": "Raises the volume limit for users, screen shares and streams from 100% to 200%.",
+  "sdkVersion": 2,
+  "version": "1.0.0"
+}
