@@ -3,8 +3,6 @@ import type { TPluginComponentsMapBySlotId } from "@sharkord/plugin-sdk/client";
 import { PLUGIN_ID } from "./constants";
 import { getEngine } from "./engine";
 import { SettingsPage } from "./ui/settings-page";
-import { TopbarButton } from "./ui/topbar-button";
-import { UserPopoverButton } from "./ui/user-popover-button";
 
 const engine = getEngine();
 const store = window.__SHARKORD_STORE__;
@@ -29,8 +27,6 @@ store.subscribe(syncEngine);
 syncEngine();
 
 const components: TPluginComponentsMapBySlotId = {
-  [PluginSlot.TOPBAR_RIGHT]: [TopbarButton],
-  [PluginSlot.USER_POPOVER]: [UserPopoverButton],
   [PluginSlot.USER_SETTINGS]: [SettingsPage],
 };
 

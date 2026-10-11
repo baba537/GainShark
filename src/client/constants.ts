@@ -1,6 +1,6 @@
 const PLUGIN_ID = "gainshark";
 
-/** boost range in percent, applied on top of Sharkord's own 0-100% slider */
+/** range of the part above 100%, stored by GainShark per volume key */
 const MIN_BOOST = 100;
 const MAX_BOOST = 200;
 

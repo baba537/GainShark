@@ -2,21 +2,22 @@
 
 Sharkord plugin that raises the volume limit for users, screen shares and plugin streams from 100% to 200%.
 
-![Boost panel in a user card](docs/user-card.jpg)
+![Right-click menu of a voice user at 200%](docs/context-menu.jpg)
 
 ## How it works
 
-Sharkord plays remote audio through `<audio>` elements, whose volume is capped at 100%. GainShark adds a boost of 100–200% on top of Sharkord's own volume slider. Boosted sources are routed through a Web Audio gain node and an optional limiter. Sources without a boost are not touched.
+Sharkord's volume sliders stop at 100%, because `<audio>` elements cannot play louder. GainShark extends the existing sliders to 0–200%:
 
-Effective volume = Sharkord volume × boost. Example: 100% in Sharkord and 200% in GainShark plays at 200%.
-
-| Where | Controls |
+| Where | Slider |
 | --- | --- |
-| Top bar, speaker button (during a call) | Every voice, screen share and stream in the channel |
-| User card, speaker button | Voice and screen share of that user |
-| User settings → GainShark | Limiter, saved boosts, reset |
+| Right-click a user in a voice channel | Voice |
+| Volume button on a user's card | Voice |
+| Volume button on a screen share | Screen share audio |
+| Volume list in the top bar | All voices, screen shares and streams |
 
-Boosts are stored per browser, like Sharkord's own volume settings.
+The line in the middle of a slider marks 100%. Up to 100% the slider sets Sharkord's own volume. Above 100% Sharkord stays at 100% and GainShark routes the audio through a Web Audio gain node with an optional limiter. Sources at or below 100% are not touched.
+
+Values above 100% are stored per browser. Sharkord's own volume settings never exceed 100%, so removing the plugin leaves valid settings behind.
 
 ![Settings page](docs/settings.jpg)
 
@@ -29,7 +30,7 @@ Requires a Sharkord server with plugin SDK version 2.
 3. Server settings → General: enable **Plugins**.
 4. Server settings → Plugins: enable **GainShark**.
 
-To update, replace the `gainshark` folder and toggle the plugin off and on. Boost settings are kept.
+To update, replace the `gainshark` folder and toggle the plugin off and on. Volume settings are kept.
 
 ## Building
 
@@ -55,7 +56,7 @@ The plugin is written to `dist/gainshark/`. Set `SHARKORD_PLUGINS_PATH` in `.env
 
 ## Limitations
 
-- GainShark finds audio elements by Sharkord client internals (`data-user-id`, `data-stream-id` and React props of the screen share card). If a Sharkord update changes them, boosts stop applying and audio plays normally.
+- GainShark relies on Sharkord client internals: the `data-user-id` and `data-stream-id` attributes of audio elements, the slider markup and React component props. If a Sharkord update changes them, the sliders fall back to Sharkord's own 0–100% and audio plays normally.
 - Choosing an output device for boosted audio needs `AudioContext.setSinkId` (Chromium 110+, Electron). Other browsers play boosted audio on the default device.
 - Boosting can clip loud sources. The limiter is on by default.
 

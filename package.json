@@ -1,6 +1,6 @@
 {
   "name": "gainshark",
-  "version": "1.0.0",
+  "version": "1.1.0",
   "description": "Sharkord plugin that raises the volume limit for users and streams to 200%.",
   "module": "src/server/index.ts",
   "type": "module",

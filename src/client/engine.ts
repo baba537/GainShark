@@ -1,19 +1,23 @@
 import { MIN_BOOST } from "./constants";
+import { findFiberProps } from "./fiber";
 import { getBoost, getSettings, subscribeSettings } from "./settings";
+import { createExtender } from "./slider-extender";
 
 /**
  * Sharkord plays every remote stream through a hidden <audio> element and sets
  * `element.volume = slider / 100`. HTMLMediaElement.volume stops at 1.0, so
  * anything above 100% needs Web Audio.
  *
- * For every source with a boost above 100% the engine:
+ * A source plays above 100% when Sharkord's own volume for it is at 100% and
+ * GainShark holds a boost for its volume key (see slider-extender.ts). Then
+ * the engine:
  *   1. routes the element's MediaStream through a GainNode (and a limiter),
  *   2. mutes the element itself, which keeps it playing so Chrome keeps
  *      decoding the remote WebRTC track,
  *   3. intercepts Sharkord's later writes to `volume` and `muted` on that
  *      element and applies them to the gain instead.
  *
- * Sources without a boost are left untouched and play natively.
+ * Every other source is left untouched and plays natively.
  */
 
 type TSourceKind = "voice" | "screen" | "external";
@@ -64,38 +68,9 @@ type TSaved = {
 
 const SCAN_INTERVAL_MS = 2000;
 const GAIN_SMOOTHING = 0.015;
+const FULL_VOLUME = 0.999;
 
 const proto = HTMLMediaElement.prototype;
-
-const findFiberProps = (
-  el: Element,
-  match: (props: Record<string, unknown>) => boolean,
-  maxDepth = 25,
-): Record<string, unknown> | undefined => {
-  const fiberKey = Object.keys(el).find((key) =>
-    key.startsWith("__reactFiber$"),
-  );
-
-  if (!fiberKey) return undefined;
-
-  let fiber = (el as unknown as Record<string, unknown>)[fiberKey] as
-    | { memoizedProps?: unknown; return?: unknown }
-    | undefined;
-
-  for (let depth = 0; fiber && depth < maxDepth; depth++) {
-    const props = fiber.memoizedProps;
-
-    if (props && typeof props === "object") {
-      const record = props as Record<string, unknown>;
-
-      if (match(record)) return record;
-    }
-
-    fiber = fiber.return as typeof fiber;
-  }
-
-  return undefined;
-};
 
 /**
  * Works out which Sharkord volume key an <audio> element belongs to.
@@ -143,12 +118,6 @@ const classify = (el: HTMLAudioElement): TSource | undefined => {
   return { key: `userscreen-${screenUserId}`, kind: "screen", userId: screenUserId };
 };
 
-const kindOrder: Record<TSourceKind, number> = {
-  voice: 0,
-  screen: 1,
-  external: 2,
-};
-
 const createEngine = () => {
   let saved: TSaved | undefined;
   let ctx: TSinkContext | undefined;
@@ -156,13 +125,12 @@ const createEngine = () => {
   let observer: MutationObserver | undefined;
   let scanTimer: ReturnType<typeof setInterval> | undefined;
   let unsubscribeSettings: (() => void) | undefined;
+  const extender = createExtender();
 
   const tracked = new Map<HTMLAudioElement, TTracked>();
   const ignored = new WeakSet<HTMLAudioElement>();
   const pending = new Set<HTMLAudioElement>();
 
-  let sources: TSource[] = [];
-  const sourceListeners = new Set<() => void>();
 
   // native accessors, always valid while the engine runs
   const nativeVolume = (el: HTMLMediaElement) =>
@@ -175,40 +143,6 @@ const createEngine = () => {
     saved!.muted.set!.call(el, value);
   const nativeSrcObject = (el: HTMLMediaElement) =>
     saved!.srcObject.get!.call(el) as MediaProvider | null;
-
-  const hasAudio = (el: HTMLMediaElement) => {
-    const stream = nativeSrcObject(el);
-
-    return stream instanceof MediaStream && stream.getAudioTracks().length > 0;
-  };
-
-  // --- sources list for the UI -------------------------------------------
-
-  const publishSources = () => {
-    const byKey = new Map<string, TSource>();
-
-    for (const item of tracked.values()) {
-      if (item.el.isConnected && hasAudio(item.el)) {
-        byKey.set(item.source.key, item.source);
-      }
-    }
-
-    const next = Array.from(byKey.values()).sort(
-      (a, b) =>
-        kindOrder[a.kind] - kindOrder[b.kind] ||
-        (a.userId ?? 0) - (b.userId ?? 0) ||
-        a.key.localeCompare(b.key),
-    );
-
-    const unchanged =
-      next.length === sources.length &&
-      next.every((source, index) => source === sources[index]);
-
-    if (unchanged) return;
-
-    sources = next;
-    sourceListeners.forEach((listener) => listener());
-  };
 
   // --- audio context -------------------------------------------------------
 
@@ -250,8 +184,7 @@ const createEngine = () => {
   const applyGain = (item: TTracked) => {
     if (!item.graph || !ctx) return;
 
-    const boost = getBoost(item.source.key) / 100;
-    const target = item.hostMuted ? 0 : item.hostVolume * boost;
+    const target = item.hostMuted ? 0 : getBoost(item.source.key) / 100;
 
     item.graph.gain.gain.setTargetAtTime(
       target,
@@ -326,7 +259,7 @@ const createEngine = () => {
     limiter.attack.value = 0.002;
     limiter.release.value = 0.1;
 
-    gain.gain.value = item.hostMuted ? 0 : item.hostVolume;
+    gain.gain.value = item.hostMuted ? 0 : 1;
     source.connect(gain);
 
     const graph: TGraph = { stream, source, gain, limiter, limited: false };
@@ -350,8 +283,10 @@ const createEngine = () => {
 
   const refresh = (item: TTracked) => {
     const stream = nativeSrcObject(item.el);
+    // the boost only applies while Sharkord itself is at 100%
     const wantsGraph =
       getBoost(item.source.key) > MIN_BOOST &&
+      item.hostVolume >= FULL_VOLUME &&
       stream instanceof MediaStream &&
       stream.getAudioTracks().length > 0;
 
@@ -383,7 +318,6 @@ const createEngine = () => {
 
     if (existing) {
       refresh(existing);
-      publishSources();
 
       return;
     }
@@ -405,7 +339,6 @@ const createEngine = () => {
 
     tracked.set(el, item);
     refresh(item);
-    publishSources();
   };
 
   const notice = (el: HTMLMediaElement) => {
@@ -424,17 +357,12 @@ const createEngine = () => {
   };
 
   const sweep = () => {
-    let changed = false;
-
     for (const [el, item] of tracked) {
       if (el.isConnected) continue;
 
       teardown(item, true);
       tracked.delete(el);
-      changed = true;
     }
-
-    if (changed) publishSources();
   };
 
   const scan = () => {
@@ -442,7 +370,6 @@ const createEngine = () => {
     document.querySelectorAll("audio").forEach((el) => {
       if (!tracked.has(el)) consider(el);
     });
-    publishSources();
   };
 
   // --- prototype patching --------------------------------------------------
@@ -471,7 +398,7 @@ const createEngine = () => {
 
         if (item?.graph && Number.isFinite(value) && value >= 0 && value <= 1) {
           item.hostVolume = value;
-          applyGain(item);
+          refresh(item);
 
           return;
         }
@@ -481,6 +408,7 @@ const createEngine = () => {
 
         if (item) {
           item.hostVolume = value;
+          refresh(item);
         } else {
           notice(this);
         }
@@ -581,10 +509,13 @@ const createEngine = () => {
     });
 
     scan();
+    extender.start();
   };
 
   const stop = () => {
     if (!saved) return;
+
+    extender.stop();
 
     observer?.disconnect();
     observer = undefined;
@@ -608,22 +539,12 @@ const createEngine = () => {
     void ctx?.close().catch(() => {});
     ctx = undefined;
     sinkId = undefined;
-
-    publishSources();
   };
 
   return {
     start,
     stop,
     isRunning: () => !!saved,
-    getSources: () => sources,
-    subscribeSources: (listener: () => void) => {
-      sourceListeners.add(listener);
-
-      return () => {
-        sourceListeners.delete(listener);
-      };
-    },
   };
 };
 
@@ -652,4 +573,4 @@ const getEngine = (): TEngine => {
 const engine = createEngine();
 
 export { getEngine };
-export type { TEngine, TSource, TSourceKind };
+export type { TEngine };
